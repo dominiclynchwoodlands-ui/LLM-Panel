@@ -125,6 +125,20 @@ function textResult(text: string) {
   };
 }
 
+/**
+ * Validate that a value is a non-empty string (after trimming).
+ * Returns an errorResult to bubble up, or null if the value is valid.
+ */
+function requireString(
+  value: unknown,
+  fieldName: string
+): ReturnType<typeof errorResult> | null {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return errorResult(`Missing or empty required parameter '${fieldName}'.`);
+  }
+  return null;
+}
+
 /** Validate that a provider id is known and available. Returns error result or null. */
 function validateProvider(
   providerId: unknown
@@ -418,6 +432,8 @@ async function handleChat(args: Record<string, unknown>) {
   const check = validateProvider(providerId);
   if (check) return check.error;
 
+  const promptErr = requireString(args.prompt, "prompt");
+  if (promptErr) return promptErr;
   const prompt = args.prompt as string;
   const system = args.system as string | undefined;
   const model = args.model as string | undefined;
@@ -445,6 +461,8 @@ async function handleCodeReview(args: Record<string, unknown>) {
   const check = validateProvider(providerId);
   if (check) return check.error;
 
+  const codeErr = requireString(args.code, "code");
+  if (codeErr) return codeErr;
   const code = args.code as string;
   const context = (args.context as string) || "";
   const focus = (args.focus as string) || "general";
@@ -536,22 +554,33 @@ async function handleSessionStart(args: Record<string, unknown>) {
 
     const messagesForApi = [...session.messages, { role: "user" as const, content: context }];
 
-    const result = await callProvider(providerId as string, messagesForApi, { model });
-    const reply = renderReply(result);
-
-    // Only persist to session after successful API call
-    session.messages.push({ role: "user", content: context });
-    session.messages.push({ role: "assistant", content: result.content || "(no answer returned)" });
-    session.tokensIn += result.usage?.prompt_tokens ?? 0;
-    session.tokensOut += result.usage?.completion_tokens ?? 0;
-    session.turnCount = 1;
-    session.lastActiveAt = Date.now();
-
+    // Reserve the slot BEFORE the awaited callProvider to close the TOCTOU window where
+    // two concurrent context-bearing starts could both pass the MAX_SESSIONS check.
+    // Mark inFlight so expireStaleSessions does not evict the reserved session during a
+    // long initial call.
+    session.inFlight = true;
     sessions.set(id, session);
+    try {
+      const result = await callProvider(providerId as string, messagesForApi, { model });
+      const reply = renderReply(result);
 
-    return textResult(
-      `**Session started: \`${id}\`** (${p.label})\n\nInitial response:\n\n${reply}\n\n---\n_Turn 1 | ${formatUsage(result.usage)} | Use panel_session_message to continue_`
-    );
+      // Only persist messages/tokens to session after successful API call
+      session.messages.push({ role: "user", content: context });
+      session.messages.push({ role: "assistant", content: result.content || "(no answer returned)" });
+      session.tokensIn += result.usage?.prompt_tokens ?? 0;
+      session.tokensOut += result.usage?.completion_tokens ?? 0;
+      session.turnCount = 1;
+      session.lastActiveAt = Date.now();
+      session.inFlight = false;
+
+      return textResult(
+        `**Session started: \`${id}\`** (${p.label})\n\nInitial response:\n\n${reply}\n\n---\n_Turn 1 | ${formatUsage(result.usage)} | Use panel_session_message to continue_`
+      );
+    } catch (err) {
+      // Roll back the reservation — a failed initial call must not leave a phantom session.
+      sessions.delete(id);
+      throw err;
+    }
   }
 
   sessions.set(id, session);
@@ -562,6 +591,8 @@ async function handleSessionStart(args: Record<string, unknown>) {
 
 async function handleSessionMessage(args: Record<string, unknown>) {
   const sessionId = args.session_id as string;
+  const messageErr = requireString(args.message, "message");
+  if (messageErr) return messageErr;
   const message = args.message as string;
 
   const session = sessions.get(sessionId);
@@ -667,8 +698,9 @@ async function handleSessionsList() {
   for (const [id, s] of sessions) {
     const p = getProvider(s.providerId);
     const idleMin = Math.round((Date.now() - s.lastActiveAt) / 60_000);
-    const expiresIn = Math.round(
-      (SESSION_IDLE_EXPIRY_MS - (Date.now() - s.lastActiveAt)) / 60_000
+    const expiresIn = Math.max(
+      0,
+      Math.round((SESSION_IDLE_EXPIRY_MS - (Date.now() - s.lastActiveAt)) / 60_000)
     );
     lines.push(
       `- \`${id}\` — ${p?.label ?? s.providerId} | ${s.model} | ${s.turnCount} turns, ${s.tokensIn + s.tokensOut} total tokens, idle ${idleMin}m, expires in ~${expiresIn}m`
@@ -679,6 +711,8 @@ async function handleSessionsList() {
 }
 
 async function handleConsult(args: Record<string, unknown>) {
+  const promptErr = requireString(args.prompt, "prompt");
+  if (promptErr) return promptErr;
   const prompt = args.prompt as string;
   const system = args.system as string | undefined;
   const model = args.model as string | undefined;
@@ -697,7 +731,18 @@ async function handleConsult(args: Record<string, unknown>) {
   }
 
   let allIds: string[];
-  if (requestedIds && requestedIds.length > 0) {
+  if (requestedIds !== undefined) {
+    // Caller explicitly passed `providers` — validate it is a non-empty array of strings.
+    // Short-circuit order matters: Array.isArray first so .some is never reached on a non-array.
+    if (
+      !Array.isArray(requestedIds) ||
+      requestedIds.length === 0 ||
+      requestedIds.some((id) => typeof id !== "string")
+    ) {
+      return errorResult(
+        "`providers`, if provided, must be a non-empty array of provider id strings — omit it to consult all available providers."
+      );
+    }
     allIds = requestedIds;
   } else {
     allIds = PROVIDERS.filter(isAvailable).map((p) => p.id);

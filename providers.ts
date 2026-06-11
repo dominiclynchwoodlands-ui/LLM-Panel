@@ -80,7 +80,7 @@ function makeProvider(base: {
     // Use || not ?? so that an empty string env var (e.g. KIMI_MODEL="") falls through
     // to the registry default rather than propagating an empty model id.
     defaultModel: process.env[base.defaultModelEnv] || base.defaultModel,
-    maxOutputTokens: clamp(raw, ceiling),
+    maxOutputTokens: Math.max(1, clamp(raw, ceiling)),
     maxOutputCeiling: ceiling,
     contextWindowTokens: envNum(`${ID}_CONTEXT_TOKENS`, base.contextWindowTokens),
     maxSessionChars: envNum(`${ID}_MAX_SESSION_CHARS`, base.maxSessionChars),
@@ -130,7 +130,7 @@ export const PROVIDERS: Provider[] = [
   makeProvider({
     id: "mimo",
     label: "MiMo (Xiaomi)",
-    // SCAFFOLD: no known public base URL yet — must come from MIMO_BASE_URL env.
+    // No public endpoint yet — set MIMO_BASE_URL to enable a private deployment.
     baseURL: null,
     apiKeyEnv: ["MIMO_API_KEY"],
     defaultModel: "mimo-7b",
