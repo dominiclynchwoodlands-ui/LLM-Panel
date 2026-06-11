@@ -1,0 +1,7 @@
+node_modules/
+.env
+.env.local
+.env.*.local
+*.log
+_verify.mjs
+.DS_Store

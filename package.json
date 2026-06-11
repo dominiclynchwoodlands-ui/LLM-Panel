@@ -1,0 +1,31 @@
+{
+  "name": "llm-panel",
+  "version": "3.0.0",
+  "description": "An MCP server that puts several LLMs (Kimi, DeepSeek, more) one tool-call away, so you can get a second opinion from a different model without leaving your editor.",
+  "type": "module",
+  "bin": {
+    "llm-panel": "./server.ts"
+  },
+  "scripts": {
+    "start": "bun server.ts"
+  },
+  "license": "MIT",
+  "author": "Dominic Lynch",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dominiclynchwoodlands-ui/LLM-Panel.git"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "llm",
+    "claude",
+    "kimi",
+    "deepseek",
+    "bun"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "openai": "^4.0.0"
+  }
+}
