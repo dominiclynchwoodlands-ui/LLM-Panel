@@ -15,7 +15,7 @@ export interface Provider {
   defaultModelEnv: string;
   /**
    * Temperature to send with every request.
-   * kimi: 1 (k2.6 hard-requires it — any other value → HTTP 400).
+   * kimi / kimi-code: 1 (k2.6 and k2.7-code both require it — any other value → HTTP 400).
    * null: omit temperature entirely (let the API use its default).
    */
   temperature: number | null;
@@ -54,6 +54,13 @@ function clamp(value: number, max: number): number {
   return Math.min(value, max);
 }
 
+// Env-var prefix for a provider id: non-alphanumerics → "_" so an id containing a
+// hyphen (e.g. "kimi-code") maps to a VALID env name (KIMI_CODE_*) instead of an
+// illegal one (KIMI-CODE_* — which the shell can't export and process.env never sees).
+export function envPrefix(id: string): string {
+  return id.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+}
+
 // Build a provider entry resolving all per-provider env overrides.
 // Pattern: <ID>_<FIELD> — e.g. KIMI_MAX_OUTPUT_TOKENS, DEEPSEEK_TIMEOUT_MS
 function makeProvider(base: {
@@ -72,7 +79,7 @@ function makeProvider(base: {
   timeoutMs: number;
   maxRetries: number;
 }): Provider {
-  const ID = base.id.toUpperCase();
+  const ID = envPrefix(base.id);
   const raw = envNum(`${ID}_MAX_OUTPUT_TOKENS`, base.maxOutputTokens);
   const ceiling = base.maxOutputCeiling;
   return {
@@ -94,13 +101,33 @@ function makeProvider(base: {
 export const PROVIDERS: Provider[] = [
   makeProvider({
     id: "kimi",
-    label: "Kimi (Moonshot)",
+    label: "Kimi K2.6 (Moonshot · general)",
     baseURL: "https://api.moonshot.ai/v1",
     apiKeyEnv: ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
     defaultModel: "kimi-k2.6",
     defaultModelEnv: "KIMI_MODEL",
     // k2.6 hard-requires temperature=1 — any other value returns HTTP 400.
     // This is a PER-PROVIDER setting; never globalize it.
+    temperature: 1,
+    contextWindowTokens: 262_144,
+    maxOutputTokens: 131_072,
+    maxOutputCeiling: 131_072,
+    maxSessionChars: 1_500_000,
+    maxInputChars: 500_000,
+    timeoutMs: 1_800_000,
+    maxRetries: 2,
+  }),
+  makeProvider({
+    id: "kimi-code",
+    label: "Kimi K2.7 Code (Moonshot)",
+    baseURL: "https://api.moonshot.ai/v1",
+    // Shares the same Moonshot account/key as `kimi` — set KIMI_API_KEY (or
+    // MOONSHOT_API_KEY) once and both providers light up. Override the model
+    // independently with KIMI_CODE_MODEL.
+    apiKeyEnv: ["KIMI_CODE_API_KEY", "KIMI_API_KEY", "MOONSHOT_API_KEY"],
+    defaultModel: "kimi-k2.7-code",
+    defaultModelEnv: "KIMI_CODE_MODEL",
+    // k2.7-code is always-thinking and requires temperature=1 (same as k2.6).
     temperature: 1,
     contextWindowTokens: 262_144,
     maxOutputTokens: 131_072,
@@ -130,15 +157,17 @@ export const PROVIDERS: Provider[] = [
   makeProvider({
     id: "mimo",
     label: "MiMo (Xiaomi)",
-    // No public endpoint yet — set MIMO_BASE_URL to enable a private deployment.
-    baseURL: null,
+    // Public Xiaomi MiMo endpoint. Override with MIMO_BASE_URL for a private deployment.
+    baseURL: "https://api.xiaomimimo.com/v1",
     apiKeyEnv: ["MIMO_API_KEY"],
-    defaultModel: "mimo-7b",
+    // Flagship ("max") model on the MiMo API. Note: mimo-7b is the open-weights
+    // HF checkpoint, NOT a valid API model id — the API serves the mimo-v2* family.
+    defaultModel: "mimo-v2.5-pro",
     defaultModelEnv: "MIMO_MODEL",
     temperature: null,
-    contextWindowTokens: 131_072,
-    maxOutputTokens: 8_192,
-    maxOutputCeiling: 8_192,
+    contextWindowTokens: 262_144,
+    maxOutputTokens: 65_536,
+    maxOutputCeiling: 65_536,
     maxSessionChars: 1_000_000,
     maxInputChars: 500_000,
     timeoutMs: 1_800_000,
@@ -164,7 +193,7 @@ export function resolveApiKey(p: Provider): string | null {
 }
 
 export function resolveBaseURL(p: Provider): string | null {
-  const override = process.env[`${p.id.toUpperCase()}_BASE_URL`];
+  const override = process.env[`${envPrefix(p.id)}_BASE_URL`];
   if (override) return override;
   return p.baseURL;
 }
@@ -213,7 +242,7 @@ export function getClient(id: string): OpenAI {
 
   const base = resolveBaseURL(p);
   const key = resolveApiKey(p);
-  if (!base) throw new Error(`Provider '${id}' (${p.label}): no base URL configured. Set ${id.toUpperCase()}_BASE_URL.`);
+  if (!base) throw new Error(`Provider '${id}' (${p.label}): no base URL configured. Set ${envPrefix(id)}_BASE_URL.`);
   if (!key) throw new Error(`Provider '${id}' (${p.label}): no API key configured. Set one of: ${p.apiKeyEnv.join(", ")}.`);
 
   const cached = clientCache.get(id);

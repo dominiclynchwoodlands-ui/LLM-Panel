@@ -16,6 +16,7 @@ import {
   resolveApiKey,
   resolveBaseURL,
   unavailableReason,
+  envPrefix,
 } from "./providers.js";
 
 // --- Configuration ---
@@ -160,7 +161,7 @@ function validateProvider(
   }
   if (!isAvailable(p)) {
     const missingKey = !resolveApiKey(p) ? p.apiKeyEnv.join(" or ") : null;
-    const missingBase = !resolveBaseURL(p) ? `${providerId.toUpperCase()}_BASE_URL` : null;
+    const missingBase = !resolveBaseURL(p) ? `${envPrefix(providerId)}_BASE_URL` : null;
     const missing = [missingKey && `API key (${missingKey})`, missingBase]
       .filter(Boolean)
       .join(", ");

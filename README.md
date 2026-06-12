@@ -6,7 +6,7 @@ The idea is simple. Claude is great, but sometimes you want a second opinion fro
 
 I built this because I kept catching real bugs by bouncing the same question off different models. They disagree in useful ways. Where they all agree you're probably fine. Where they split, that's usually where the interesting problem is hiding.
 
-Ships with Kimi (Moonshot) and DeepSeek out of the box. MiMo is stubbed in and ready, you just point it at an endpoint. Anything else that speaks the OpenAI API format is basically one block of config away (there's a section on that below).
+Ships with Kimi (Moonshot), DeepSeek and MiMo (Xiaomi) out of the box — each wired to its public endpoint, so a single API key per provider is all you need. Kimi comes as two choices: `kimi` (K2.6, the broad generalist) and `kimi-code` (K2.7 Code, the coding-specialised reviewer), both off the same Moonshot key. Anything else that speaks the OpenAI API format is basically one block of config away (there's a section on that below).
 
 ## What you need
 
@@ -100,14 +100,15 @@ Keys are the only thing you actually have to set. Everything else has a default.
 
 | var | what it does | default |
 |-----|--------------|---------|
-| `KIMI_API_KEY` | the key (Kimi also takes `MOONSHOT_API_KEY`) | none |
-| `KIMI_MODEL` | which model id to use | `kimi-k2.6` |
+| `KIMI_API_KEY` | the key (Kimi also takes `MOONSHOT_API_KEY`); powers both `kimi` and `kimi-code` | none |
+| `KIMI_MODEL` | model id for the `kimi` provider | `kimi-k2.6` |
+| `KIMI_CODE_MODEL` | model id for the `kimi-code` provider | `kimi-k2.7-code` |
 | `KIMI_BASE_URL` | override the endpoint | provider default |
 | `KIMI_TIMEOUT_MS` | request timeout, kept long on purpose so big prompts don't get cut off | `1800000` (30 min) |
 | `KIMI_MAX_OUTPUT_TOKENS` | cap on response length | provider max |
 | `KIMI_CONTEXT_TOKENS` | context window hint | provider default |
 
-DeepSeek defaults to `deepseek-v4-pro` with a 1M token context window. MiMo needs `MIMO_BASE_URL` set since there's no public endpoint baked in for it.
+The `kimi-code` provider has the same knobs under its own `KIMI_CODE_` prefix (e.g. `KIMI_CODE_TIMEOUT_MS`); it falls back to `KIMI_API_KEY` if you don't set a separate `KIMI_CODE_API_KEY`. DeepSeek defaults to `deepseek-v4-pro` with a 1M token context window. MiMo defaults to `mimo-v2.5-pro` against the public `https://api.xiaomimimo.com/v1` endpoint — just set `MIMO_API_KEY` (override `MIMO_BASE_URL` only for a private deployment).
 
 The long default timeout is deliberate. Streaming stays on for every call, which keeps the socket warm, so large requests don't drop halfway through. I got bitten by that early on and never want to debug it again.
 
